@@ -74,7 +74,7 @@ function packDone(dir, cb, order) {
 
     function dealThreeThings(dir, mainDir, nowDir) {
         console.log("Split app-service.js and make up configs & wxss & wxml & wxs...");
-
+		
         //deal config
         if (fs.existsSync(path.resolve(dir, "app-config.json"))) {
             wuCfg.doConfig(path.resolve(dir, "app-config.json"), doBack);
@@ -109,8 +109,8 @@ function packDone(dir, cb, order) {
             } else {
                 throw Error("page-frame-like file is not found in the package by auto.");
             }
-            //Force it run at last, becuase lots of error occured in this part
-            wuSs.doWxss(dir, doBack);
+			//Force it run at last, becuase lots of error occured in this part
+			wuSs.doWxss(dir, doBack, mainDir, nowDir);
 
             console.log('deal css ok');
         }
@@ -162,7 +162,11 @@ function packDone(dir, cb, order) {
                             doSubPkg = true;
                             return true;
                         } else {
-                            findDir(workDir, oldDir);
+                            var stat = fs.lstatSync(workDir);
+                            if (stat.isDirectory()) {
+                                findDir(workDir, oldDir);
+                            }
+                            doSubPkg = true;
                         }
                     }
 

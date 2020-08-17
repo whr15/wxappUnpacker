@@ -7,6 +7,7 @@ const csstree = require('css-tree');
 const cheerio = require('cheerio');
 
 function doWxss(dir, cb, mainDir, nowDir) {
+	console.log('doWxss: ', dir)
     let saveDir = dir;
     let isSubPkg = mainDir && mainDir.length > 0;
     if (isSubPkg) {
@@ -28,8 +29,12 @@ function doWxss(dir, cb, mainDir, nowDir) {
 
         function statistic(data) {
             function addStat(id) {
-                if (!importCnt[id]) importCnt[id] = 1, statistic(pureData[id]);
-				else ++importCnt[id];
+                if (!importCnt[id] && pureData) {
+                    importCnt[id] = 1, statistic(pureData[id]);
+                }
+				else {
+                    ++importCnt[id];
+                }
 			}
 
             if (typeof data === "number") return addStat(data);
@@ -83,24 +88,41 @@ function doWxss(dir, cb, mainDir, nowDir) {
 	}
 
     function runVM(name, code) {
-        let wxAppCode = {}, handle = {cssFile: name};
-        let vm = new VM({
-            sandbox: Object.assign(new GwxCfg(), {
-                __wxAppCode__: wxAppCode,
-                setCssToHead: cssRebuild.bind(handle),
-                $gwx(path, global) {
+        // let wxAppCode = {}, handle = {cssFile: name};
+        // let vm = new VM({
+        //     sandbox: Object.assign(new GwxCfg(), {
+        //         __wxAppCode__: wxAppCode,
+        //         setCssToHead: cssRebuild.bind(handle),
+        //         $gwx(path, global) {
+        //
+        //         }
+        //     })
+        // });
+        //
+        // // console.log('do css runVm: ' + name);
+		// vm.run(code);
+        // for (let name in wxAppCode) {
+        //     handle.cssFile = path.resolve(saveDir, name);
+        //     if (name.endsWith(".wxss")) {
+        //         wxAppCode[name]();
+        //     }
+        // }
+        let wxAppCode={},handle={cssFile:name};
 
-                }
-            })
-        });
+        let gg = new GwxCfg();
 
-        // console.log('do css runVm: ' + name);
-		vm.run(code);
-        for (let name in wxAppCode) {
-            handle.cssFile = path.resolve(saveDir, name);
-            if (name.endsWith(".wxss")) {
-                wxAppCode[name]();
-            }
+        let tsandbox =  {$gwx:GwxCfg.prototype["$gwx"],__mainPageFrameReady__:GwxCfg.prototype["$gwx"],__wxAppCode__:wxAppCode,setCssToHead:cssRebuild.bind(handle)};
+
+        let vm = new VM({sandbox:tsandbox});
+
+        vm.run(code);
+
+        for(let name in wxAppCode)if(name.endsWith(".wxss")){
+
+            handle.cssFile=path.resolve(frameName,"..",name);
+
+            wxAppCode[name]();
+
         }
     }
 
@@ -186,7 +208,14 @@ function doWxss(dir, cb, mainDir, nowDir) {
 					}
 			}
 		});
-        return cssbeautify(csstree.generate(ast), {indent: '    ', autosemicolon: true});
+        var cssList = cssbeautify(csstree.generate(ast), {indent: '    ', autosemicolon: true})
+        var beautify_css;
+        if (/.wxss/.test(cssList)) {
+            beautify_css = '';
+        } else {
+            beautify_css = cssList;
+        }
+        return beautify_css;
     }
 
     wu.scanDirByExt(dir, ".html", files => {
@@ -234,13 +263,32 @@ function doWxss(dir, cb, mainDir, nowDir) {
 
             //remove setCssToHead function
             mainCode = mainCode.replace('var setCssToHead = function', 'var setCssToHead2 = function');
-
-            code = code.slice(code.lastIndexOf('var setCssToHead = function(file, _xcInvalid'));
-            code = code.slice(code.lastIndexOf('\nvar _C= ') + 1);
-
-            code = code.slice(0, code.indexOf('\n'));
+            // 抽取setCssToHead函数
+            code = code.slice(code.indexOf('var setCssToHead = '), code.indexOf('</script>'))
+            code = code.replace('__COMMON_STYLESHEETS__', '{};')
+            var left = 1;
+            var first = true;
+            var modify_code = '';
+            for (var i = 0; i < code.length; i++) {
+                if (left) {
+                    if (code[i].indexOf('{') > -1) {
+                        if (first) {
+                            left = 1
+                            first = false
+                        } else {
+                            left++;
+                        }
+                    }else if (code[i].indexOf('}') > -1) {
+                        left--;
+                    }
+                    modify_code += code[i]
+                } else {
+                    break;
+                }
+            }
+            code = modify_code;
             let vm = new VM({sandbox: {}});
-            pureData = vm.run(code + "\n_C");
+            pureData = vm.run(code);
 
 			console.log("Guess wxss(first turn)...");
             preRun(dir, frameFile, mainCode, files, () => {
